@@ -1,0 +1,97 @@
+const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
+const qrcode = require('qrcode-terminal');
+const fs = require('fs-extra');
+const mime = require('mime-types');
+const sharp = require('sharp');
+const axios = require('axios');
+
+const API_KEY = 'your keys API'; // API Key untuk cek cuaca
+
+const client = new Client({ authStrategy: new LocalAuth() });
+
+client.on('qr', qr => {
+    console.log('Scan QR Code ini dengan WhatsApp:');
+    qrcode.generate(qr, { small: true });
+});
+
+client.on('ready', () => {
+    console.log('✅ Bot sudah siap!');
+});
+
+client.on('message', async message => {
+    console.log(`📩 Pesan diterima: ${message.body}`);
+    const msg = message.body.toLowerCase();
+
+    // Auto-reply sapaan
+    if (msg === 'halo') {
+        message.reply('Hai! Ada yang bisa saya bantu? 😊');
+    }
+
+    // Perintah dengan prefix '/'
+    if (msg.startsWith('/')) {
+        const command = msg.split(' ')[0];
+        const args = msg.split(' ').slice(1).join(' ');
+        
+        switch (command) {
+            case '/help':
+                message.reply('📌 *Daftar Perintah:*
+/help - Menampilkan perintah
+/info - Info bot
+/ping - Cek status bot
+/cuaca [kota] - Cek cuaca real-time');
+                break;
+            case '/info':
+                message.reply('🤖 *Bot WhatsApp*
+Versi: 1.0.0
+Dibuat dengan *whatsapp-web.js*');
+                break;
+            case '/ping':
+                message.reply('🏓 Pong! Bot aktif dan berjalan.');
+                break;
+            case '/cuaca':
+                if (!args) return message.reply('❌ Harap masukkan nama kota!
+Contoh: /cuaca Makassar');
+                try {
+                    const response = await axios.get(`https://api.openweathermap.org/data/2.5/weather?q=${args}&appid=${API_KEY}&units=metric&lang=id`);
+                    const data = response.data;
+                    message.reply(`🌤 *Cuaca di ${data.name}*
+🌡 Suhu: ${data.main.temp}°C
+💨 Angin: ${data.wind.speed} m/s
+☁ Cuaca: ${data.weather[0].description}`);
+                } catch (error) {
+                    message.reply('❌ Kota tidak ditemukan atau terjadi kesalahan.');
+                }
+                break;
+            default:
+                message.reply('❌ Perintah tidak ditemukan! Ketik */help* untuk daftar perintah.');
+                break;
+        }
+    }
+
+    // Membuat stiker dari gambar
+    if (message.hasMedia) {
+        const media = await message.downloadMedia();
+        const fileType = mime.extension(media.mimetype);
+
+        if (fileType === 'jpeg' || fileType === 'png' || fileType === 'jpg') {
+            const filePath = `temp/input.${fileType}`;
+            const outputPath = `temp/output.webp`;
+
+            await fs.writeFile(filePath, media.data, 'base64');
+            await sharp(filePath)
+                .resize(512, 512, { fit: 'inside' })
+                .toFormat('webp')
+                .toFile(outputPath);
+            
+            const sticker = MessageMedia.fromFilePath(outputPath);
+            await message.reply(sticker, undefined, { sendMediaAsSticker: true });
+            
+            await fs.unlink(filePath);
+            await fs.unlink(outputPath);
+        } else {
+            message.reply('❌ Format file tidak didukung! Kirim gambar dengan format JPG atau PNG.');
+        }
+    }
+});
+
+client.initialize();
